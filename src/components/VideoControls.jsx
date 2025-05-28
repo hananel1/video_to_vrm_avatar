@@ -10,6 +10,8 @@ import { useVideoRecognition } from "../hooks/useVideoRecognition";
 
 export const VideoControls = ({ videoSrc }) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [landmarkData, setLandmarkData] = useState([]);
   const videoElement = useRef();
   const drawCanvas = useRef();
   const setVideoElement = useVideoRecognition((state) => state.setVideoElement);
@@ -70,8 +72,10 @@ export const VideoControls = ({ videoSrc }) => {
   };
 
   useEffect(() => {
-    // Reset playing state when video source changes
+    // Reset states when video source changes
     setIsPlaying(false);
+    setIsRecording(false);
+    setLandmarkData([]);
     
     if (!videoSrc) {
       setVideoElement(null);
@@ -120,6 +124,18 @@ export const VideoControls = ({ videoSrc }) => {
     holistic.onResults((results) => {
       drawResults(results);
       useVideoRecognition.getState().resultsCallback?.(results);
+      
+      if (isRecording) {
+        // Save landmark data with timestamp
+        const frameData = {
+          timestamp: videoElement.current.currentTime,
+          faceLandmarks: results.faceLandmarks,
+          poseLandmarks: results.poseLandmarks,
+          leftHandLandmarks: results.leftHandLandmarks,
+          rightHandLandmarks: results.rightHandLandmarks,
+        };
+        setLandmarkData(prev => [...prev, frameData]);
+      }
     });
 
     // Process video frames
@@ -142,7 +158,7 @@ export const VideoControls = ({ videoSrc }) => {
         videoElement.current.removeEventListener('play', playHandler);
       }
     };
-  }, [isPlaying, videoSrc]);
+  }, [isPlaying, videoSrc, isRecording]);
 
   const togglePlayback = () => {
     if (videoElement.current) {
@@ -155,25 +171,58 @@ export const VideoControls = ({ videoSrc }) => {
     }
   };
 
+  const toggleRecording = () => {
+    if (isRecording) {
+      // Stop recording and save data
+      const fileName = `landmark-data-${new Date().toISOString()}.json`;
+      const jsonString = JSON.stringify(landmarkData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setLandmarkData([]); // Clear the data after saving
+    }
+    setIsRecording(!isRecording);
+  };
+
   if (!videoSrc) return null;
 
   return (
     <div className="fixed bottom-0 right-0 p-4 z-50">
       <div className="flex flex-col items-end gap-4">
-        <button
-          onClick={togglePlayback}
-          className={`cursor-pointer ${
-            isPlaying
-              ? "bg-red-500 hover:bg-red-700"
-              : "bg-indigo-400 hover:bg-indigo-700"
-          } transition-colors duration-200 flex items-center justify-center p-4 rounded-full text-white drop-shadow-sm`}
-        >
-          {!isPlaying ? (
-            <span className="material-icons">play_arrow</span>
-          ) : (
-            <span className="material-icons">pause</span>
-          )}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={togglePlayback}
+            className={`cursor-pointer ${
+              isPlaying
+                ? "bg-red-500 hover:bg-red-700"
+                : "bg-indigo-400 hover:bg-indigo-700"
+            } transition-colors duration-200 flex items-center justify-center p-4 rounded-full text-white drop-shadow-sm`}
+          >
+            {!isPlaying ? (
+              <span className="material-icons">play_arrow</span>
+            ) : (
+              <span className="material-icons">pause</span>
+            )}
+          </button>
+          <button
+            onClick={toggleRecording}
+            className={`cursor-pointer ${
+              isRecording
+                ? "bg-red-500 hover:bg-red-700"
+                : "bg-green-500 hover:bg-green-700"
+            } transition-colors duration-200 flex items-center justify-center p-4 rounded-full text-white drop-shadow-sm`}
+          >
+            <span className="material-icons">
+              {isRecording ? "stop" : "fiber_manual_record"}
+            </span>
+          </button>
+        </div>
         <div
           className={`w-[320px] h-[240px] rounded-[20px] overflow-hidden bg-black ${
             !isPlaying ? "opacity-50" : ""
@@ -188,6 +237,11 @@ export const VideoControls = ({ videoSrc }) => {
             className="absolute z-0 w-[320px] h-[240px] object-cover"
           />
         </div>
+        {isRecording && (
+          <div className="text-sm text-white bg-red-500 px-3 py-1 rounded-full">
+            Recording landmarks... ({landmarkData.length} frames)
+          </div>
+        )}
       </div>
     </div>
   );
